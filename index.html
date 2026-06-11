@@ -70,21 +70,25 @@
   <div id="years"></div>
   <h2>Plant</h2>
   <div id="plants"></div>
+  <h2>Location Precision</h2>
+  <div id="precs"></div>
 </div>
 <div id="legend">
   <b>Year shipped</b>
   <div class="ramp" id="legendramp"></div>
   <div class="ramplabels"><span>2014</span><span>2026</span></div>
   <div id="legendplants"></div>
-  <div class="note">Pin shape = plant state. Pins placed at zip/city center; state-centered pins are marked approximate.</div>
+  <div class="note">Pin shape = plant. <span style="color:#0873BB;font-weight:600;">Blue</span> pins = state-level only (approximate). Red pins = zip or city precise.</div>
 </div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
 const YEARS = [];
 for (let y = 2014; y <= 2026; y++) YEARS.push(y);
-const RAMP = ['#FDE5E8','#F9C9CF','#F3AAB4','#EC8B99','#E46C7F','#DB4E66','#CE3550','#BC2035','#A21B2D','#881725','#6E121D','#540D16','#3B080E'];
-const yearColor = y => RAMP[Math.min(Math.max(y - 2014, 0), RAMP.length - 1)];
+const RAMP      = ['#FDE5E8','#F9C9CF','#F3AAB4','#EC8B99','#E46C7F','#DB4E66','#CE3550','#BC2035','#A21B2D','#881725','#6E121D','#540D16','#3B080E'];
+const RAMP_APPROX = ['#DBEFFE','#B6DFFC','#91CFF9','#6CBFF7','#47AFF5','#229EF2','#0A8AE0','#0873BB','#065C96','#044571','#022E4C','#011727','#000B13'];
+const yearColor       = y => RAMP      [Math.min(Math.max(y - 2014, 0), RAMP.length - 1)];
+const yearColorApprox = y => RAMP_APPROX[Math.min(Math.max(y - 2014, 0), RAMP_APPROX.length - 1)];
 
 const PLANT_LABELS = ['Boulder City, NV', 'Sulphur Springs, TX', 'Plant City, FL'];
 
@@ -113,19 +117,42 @@ function pinSvg(plantIdx, year, size) {
   }
 }
 const iconCache = {};
-function makeIcon(plantIdx, year, qty) {
+function makeIcon(plantIdx, year, qty, prec) {
   const size = Math.round(16 + 5 * Math.log2(Math.max(qty, 1)));
-  const key = plantIdx + '|' + year + '|' + size;
+  const key = plantIdx + '|' + year + '|' + size + '|' + prec;
   if (!iconCache[key]) {
+    const approx = prec === 2;
     iconCache[key] = L.divIcon({
       className: 'pin',
-      html: pinSvg(plantIdx, year, size),
+      html: pinSvgColored(plantIdx, year, size, approx),
       iconSize: [size, size],
       iconAnchor: [size / 2, size / 2],
       popupAnchor: [0, -size / 2]
     });
   }
   return iconCache[key];
+}
+
+function pinSvgColored(plantIdx, year, size, approx) {
+  const origPinSvg = pinSvg;
+  const c = approx ? yearColorApprox(year) : yearColor(year);
+  const s = size, h = s / 2;
+  if (plantIdx === 0) {
+    const m = s * 0.15, e = s * 0.85, t = s * 0.2;
+    return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><line x1="${m}" y1="${m}" x2="${e}" y2="${e}" stroke="${c}" stroke-width="${t}" stroke-linecap="round"/><line x1="${e}" y1="${m}" x2="${m}" y2="${e}" stroke="${c}" stroke-width="${t}" stroke-linecap="round"/></svg>`;
+  } else if (plantIdx === 1) {
+    const r1 = h * 0.9, r2 = h * 0.38;
+    let d = '';
+    for (let i = 0; i < 10; i++) {
+      const a = (i * Math.PI / 5) - Math.PI / 2;
+      const r = i % 2 === 0 ? r1 : r2;
+      d += (i === 0 ? 'M' : 'L') + (h + r * Math.cos(a)).toFixed(2) + ' ' + (h + r * Math.sin(a)).toFixed(2) + ' ';
+    }
+    d += 'Z';
+    return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><path d="${d}" fill="${c}" stroke="#444" stroke-width="1.2"/></svg>`;
+  } else {
+    return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><circle cx="${h}" cy="${h}" r="${h * 0.8}" fill="${c}" stroke="#444" stroke-width="1.2"/></svg>`;
+  }
 }
 
 function jitter(lat, lng, i) {
@@ -137,7 +164,7 @@ function jitter(lat, lng, i) {
 
 let DATA, mhbMarkers = [];
 let mhbGroup, map;
-const state = { years: new Set(YEARS), plants: new Set([0, 1, 2]), search: '' };
+const state = { years: new Set(YEARS), plants: new Set([0, 1, 2]), search: '', precs: new Set([0, 1, 2]) };
 
 fetch('data.json').then(r => r.json()).then(init);
 
@@ -166,7 +193,7 @@ function init(data) {
   DATA.mhb.forEach((rec, i) => {
     const [locIdx, year, plantIdx, qty, jobIdx, prec, diams] = rec;
     const [lat, lng] = DATA.locs[locIdx];
-    const m = L.marker(jitter(lat, lng, i), { icon: makeIcon(plantIdx, year, qty) });
+    const m = L.marker(jitter(lat, lng, i), { icon: makeIcon(plantIdx, year, qty, prec) });
     m.meta = { year, plantIdx, qty, jobIdx, prec, diams: diams || [] };
     m.bindPopup(() => popupHtml(m.meta));
     mhbMarkers.push(m);
@@ -191,7 +218,7 @@ function jobMatchesSearch(jobIdx, q) {
 function applyFilters() {
   const q = state.search.trim().toLowerCase();
   const pred = m => state.years.has(m.meta.year) && state.plants.has(m.meta.plantIdx)
-    && (!q || jobMatchesSearch(m.meta.jobIdx, q));
+    && state.precs.has(m.meta.prec) && (!q || jobMatchesSearch(m.meta.jobIdx, q));
   const visible = mhbMarkers.filter(pred);
   mhbGroup.clearLayers();
   mhbGroup.addLayers(visible);
@@ -232,6 +259,22 @@ function buildPanel() {
     });
     plantsDiv.appendChild(label);
   });
+  const PREC_LABELS = [
+    { key: 0, label: 'Zip code (precise)', color: yearColor(2020) },
+    { key: 1, label: 'City (moderate)', color: yearColor(2020) },
+    { key: 2, label: 'State only (approx)', color: yearColorApprox(2020) },
+  ];
+  const precsDiv = document.getElementById('precs');
+  PREC_LABELS.forEach(({ key, label, color }) => {
+    const lbl = document.createElement('label');
+    lbl.innerHTML = `<input type="checkbox" checked data-prec="${key}"><span class="swatch" style="background:${color}"></span>${label}`;
+    lbl.querySelector('input').addEventListener('change', e => {
+      e.target.checked ? state.precs.add(key) : state.precs.delete(key);
+      applyFilters();
+    });
+    precsDiv.appendChild(lbl);
+  });
+
   let debounce;
   document.getElementById('search').addEventListener('input', e => {
     clearTimeout(debounce);
