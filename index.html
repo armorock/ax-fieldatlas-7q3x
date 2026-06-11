@@ -97,15 +97,31 @@ for (let y = 2014; y <= 2026; y++) YEARS.push(y);
 const RAMP = ['#FDE5E8','#F9C9CF','#F3AAB4','#EC8B99','#E46C7F','#DB4E66','#CE3550','#BC2035','#A21B2D','#881725','#6E121D','#540D16','#3B080E'];
 const yearColor = y => RAMP[Math.min(Math.max(y - 2014, 0), RAMP.length - 1)];
 
-const STATE_PATHS = {
-  0: 'M4 2 L20 2 L20 9 L12.5 22 L11 17 L9.5 18 L4 12 Z',
-  1: 'M8 2 L12 2 L12 8 L20 8.5 L21 12 L17 15 L16 22 L12 19 L8 14 L2 11.5 L7.5 9 Z',
-  2: 'M2 4 L13 4 L13 7 L16 8 L19 14 L20 20 L17 22 L15 16 L12 9 L2 7 Z'
-};
 const PLANT_LABELS = ['Boulder City, NV', 'Sulphur Springs, TX', 'Plant City, FL'];
 
 function pinSvg(plantIdx, year, size) {
-  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24"><path d="${STATE_PATHS[plantIdx]}" fill="${yearColor(year)}" stroke="#444" stroke-width="1.2"/></svg>`;
+  const c = yearColor(year);
+  const s = size;
+  const h = s / 2;
+  if (plantIdx === 0) {
+    // X for Nevada (Boulder City)
+    const m = s * 0.15, e = s * 0.85, t = s * 0.2;
+    return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><line x1="${m}" y1="${m}" x2="${e}" y2="${e}" stroke="${c}" stroke-width="${t}" stroke-linecap="round"/><line x1="${e}" y1="${m}" x2="${m}" y2="${e}" stroke="${c}" stroke-width="${t}" stroke-linecap="round"/></svg>`;
+  } else if (plantIdx === 1) {
+    // 5-point star for Texas (Sulphur Springs)
+    const r1 = h * 0.9, r2 = h * 0.38;
+    let d = '';
+    for (let i = 0; i < 10; i++) {
+      const a = (i * Math.PI / 5) - Math.PI / 2;
+      const r = i % 2 === 0 ? r1 : r2;
+      d += (i === 0 ? 'M' : 'L') + (h + r * Math.cos(a)).toFixed(2) + ' ' + (h + r * Math.sin(a)).toFixed(2) + ' ';
+    }
+    d += 'Z';
+    return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><path d="${d}" fill="${c}" stroke="#444" stroke-width="1.2"/></svg>`;
+  } else {
+    // Circle for Florida (Plant City)
+    return `<svg width="${s}" height="${s}" viewBox="0 0 ${s} ${s}"><circle cx="${h}" cy="${h}" r="${h * 0.8}" fill="${c}" stroke="#444" stroke-width="1.2"/></svg>`;
+  }
 }
 const iconCache = {};
 function makeIcon(plantIdx, year, qty) {
