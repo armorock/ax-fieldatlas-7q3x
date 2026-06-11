@@ -28,12 +28,6 @@
   #panel h2:first-child { margin-top: 0; }
   #panel label { display: flex; align-items: center; gap: 6px; padding: 2px 0; cursor: pointer; }
   .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #999; flex: none; }
-  .viewbtns { display: flex; gap: 6px; }
-  .viewbtns button {
-    flex: 1; padding: 7px 4px; border: 1px solid #BC2035; background: #fff; color: #BC2035;
-    border-radius: 5px; font-weight: 600; font-size: 13px; cursor: pointer;
-  }
-  .viewbtns button.active { background: #BC2035; color: #fff; }
   #search { width: 100%; box-sizing: border-box; padding: 6px; border: 1px solid #ccc; border-radius: 5px; font-size: 13px; }
   .linkrow { font-size: 12px; margin: 4px 0; }
   .linkrow a { color: #BC2035; cursor: pointer; text-decoration: underline; margin-right: 10px; }
@@ -63,17 +57,12 @@
 </head>
 <body>
 <div id="titlebar">
-  <h1>Armorock Structures Map</h1>
+  <h1>Armorock MHB Bases Shipped</h1>
   <span id="livecount">Loading…</span>
   <span id="notmapped"></span>
 </div>
 <div id="map"></div>
 <div id="panel">
-  <h2>View</h2>
-  <div class="viewbtns">
-    <button id="btn-mhb" class="active">MHB Count</button>
-    <button id="btn-struct">Structures</button>
-  </div>
   <h2>Search</h2>
   <input id="search" type="text" placeholder="job code / project / customer">
   <h2>Years</h2>
@@ -146,8 +135,8 @@ function jitter(lat, lng, i) {
   return [lat + dx, lng + dy];
 }
 
-let DATA, mhbMarkers = [], structMarkers = [], activeView = 'mhb';
-let mhbGroup, structGroup, map;
+let DATA, mhbMarkers = [];
+let mhbGroup, map;
 const state = { years: new Set(YEARS), plants: new Set([0, 1, 2]), search: '' };
 
 fetch('data.json').then(r => r.json()).then(init);
@@ -173,35 +162,22 @@ function init(data) {
       });
     }
   });
-  structGroup = L.markerClusterGroup({
-    chunkedLoading: true, chunkInterval: 50, spiderfyOnMaxZoom: true,
-    disableClusteringAtZoom: 15, maxClusterRadius: 50
-  });
 
   DATA.mhb.forEach((rec, i) => {
-    const [locIdx, year, plantIdx, qty, jobIdx, prec] = rec;
+    const [locIdx, year, plantIdx, qty, jobIdx, prec, diams] = rec;
     const [lat, lng] = DATA.locs[locIdx];
     const m = L.marker(jitter(lat, lng, i), { icon: makeIcon(plantIdx, year, qty) });
-    m.meta = { year, plantIdx, qty, jobIdx, prec };
-    m.bindPopup(() => popupHtml(m.meta, null));
+    m.meta = { year, plantIdx, qty, jobIdx, prec, diams: diams || [] };
+    m.bindPopup(() => popupHtml(m.meta));
     mhbMarkers.push(m);
-  });
-  DATA.structures.forEach((rec, i) => {
-    const [locIdx, year, plantIdx, jobIdx, name, label, prec] = rec;
-    const [lat, lng] = DATA.locs[locIdx];
-    const m = L.marker(jitter(lat, lng, i + 100000), { icon: makeIcon(plantIdx, year, 1) });
-    m.meta = { year, plantIdx, qty: 1, jobIdx, prec, structName: name, structLabel: label };
-    m.bindPopup(() => popupHtml(m.meta, name || 'Unnamed structure'));
-    structMarkers.push(m);
   });
 
   buildPanel();
   buildLegend();
   document.getElementById('notmapped').textContent =
-    `Not mapped (no usable location): ${DATA.meta.notMappedMhb.toLocaleString()} MHBs / ${DATA.meta.notMappedStructures.toLocaleString()} structures`;
+    `Not mapped (no usable location): ${DATA.meta.notMappedMhb.toLocaleString()} bases`;
   map.addLayer(mhbGroup);
   applyFilters();
-  if (location.hash === '#struct') setView('struct');
 }
 
 function jobMatchesSearch(jobIdx, q) {
@@ -216,30 +192,14 @@ function applyFilters() {
   const q = state.search.trim().toLowerCase();
   const pred = m => state.years.has(m.meta.year) && state.plants.has(m.meta.plantIdx)
     && (!q || jobMatchesSearch(m.meta.jobIdx, q));
-  const group = activeView === 'mhb' ? mhbGroup : structGroup;
-  const markers = activeView === 'mhb' ? mhbMarkers : structMarkers;
-  const visible = markers.filter(pred);
-  group.clearLayers();
-  group.addLayers(visible);
-  if (activeView === 'mhb') {
-    let total = 0;
-    visible.forEach(m => total += m.meta.qty);
-    document.getElementById('livecount').textContent = `${total.toLocaleString()} MHB structures shown`;
-  } else {
-    document.getElementById('livecount').textContent = `${visible.length.toLocaleString()} structures shown`;
-  }
+  const visible = mhbMarkers.filter(pred);
+  mhbGroup.clearLayers();
+  mhbGroup.addLayers(visible);
+  let total = 0;
+  visible.forEach(m => total += m.meta.qty);
+  document.getElementById('livecount').textContent = `${total.toLocaleString()} MHB bases shown`;
 }
 
-function setView(view) {
-  if (view === activeView) return;
-  location.hash = view === 'struct' ? '#struct' : '';
-  map.removeLayer(activeView === 'mhb' ? mhbGroup : structGroup);
-  activeView = view;
-  map.addLayer(activeView === 'mhb' ? mhbGroup : structGroup);
-  document.getElementById('btn-mhb').classList.toggle('active', view === 'mhb');
-  document.getElementById('btn-struct').classList.toggle('active', view === 'struct');
-  applyFilters();
-}
 
 function buildPanel() {
   const yearsDiv = document.getElementById('years');
@@ -277,8 +237,6 @@ function buildPanel() {
     clearTimeout(debounce);
     debounce = setTimeout(() => { state.search = e.target.value; applyFilters(); }, 250);
   });
-  document.getElementById('btn-mhb').addEventListener('click', () => setView('mhb'));
-  document.getElementById('btn-struct').addEventListener('click', () => setView('struct'));
 }
 
 function buildLegend() {
@@ -301,16 +259,18 @@ function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function popupHtml(meta, structTitle) {
+function popupHtml(meta) {
   const j = DATA.jobs[meta.jobIdx];
-  const [code, project, custIdx, contractor, city, st, zip, comp, yrs] = j;
+  const [code, project, custIdx, contractor, city, st, zip, , yrs] = j;
   const cust = DATA.customers[custIdx];
   let h = '<div class="popup">';
-  h += `<h3>${structTitle ? esc(structTitle) : (code ? 'Job ' + esc(code) : 'Legacy shipment')}</h3>`;
+  h += `<h3>${code ? 'Job ' + esc(code) : 'Legacy shipment'}</h3>`;
   h += '<table>';
-  if (structTitle && meta.structLabel) h += `<tr><td>Part</td><td>${esc(meta.structLabel)}</td></tr>`;
-  if (structTitle && code) h += `<tr><td>Job</td><td>${esc(code)}</td></tr>`;
-  if (!structTitle && meta.qty) h += `<tr><td>MHBs here</td><td>${meta.qty}</td></tr>`;
+  h += `<tr><td>Bases shipped</td><td>${meta.qty}</td></tr>`;
+  if (meta.diams && meta.diams.length) {
+    const diamStr = meta.diams.map(([d, n]) => `${n}× ${esc(d)}&Prime;`).join(', ');
+    h += `<tr><td>Diameters</td><td>${diamStr}</td></tr>`;
+  }
   if (project) h += `<tr><td>Project</td><td>${esc(project)}</td></tr>`;
   if (cust) h += `<tr><td>Customer</td><td>${esc(cust)}</td></tr>`;
   if (contractor) h += `<tr><td>Contractor</td><td>${esc(contractor)}</td></tr>`;
@@ -319,11 +279,6 @@ function popupHtml(meta, structTitle) {
   const loc = [city, st].filter(Boolean).join(', ') + (zip ? ' ' + zip : '');
   if (loc.trim()) h += `<tr><td>Location</td><td>${esc(loc)}</td></tr>`;
   h += '</table>';
-  if (comp && comp.length) {
-    h += '<div class="comp"><b>Job composition</b><br>';
-    h += comp.map(([p, n]) => `${n}× ${esc(p)}`).join('<br>');
-    h += '</div>';
-  }
   if (meta.prec === 2) h += '<div class="approx">Approximate location (state-level)</div>';
   h += '</div>';
   return h;
